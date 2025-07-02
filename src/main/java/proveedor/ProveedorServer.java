@@ -49,15 +49,16 @@ public class ProveedorServer {
 
             System.out.println("DEBUG JSON recibido: " + datos);
 
-            String telefono = datos.get("telefono");
             String tipoStr = datos.get("tipo_transaccion");
-            if (tipoStr == null || telefono == null) {
-                salida.println("{\"status\":\"ERROR\",\"mensaje\":\"Datos incompletos\"}");
+
+            if (tipoStr == null) {
+                salida.println("{\"status\":\"ERROR\",\"mensaje\":\"Tipo de transacción faltante\"}");
                 return;
             }
 
             int tipoTransaccion = Integer.parseInt(tipoStr.trim());
-            String respuesta;
+            String respuesta = "";
+            String telefono = datos.get("telefono"); // se usa solo si aplica
 
             try (ConexionSQLServer db = new ConexionSQLServer()) {
                 if (!db.conectar()) {
@@ -67,6 +68,11 @@ public class ProveedorServer {
 
                 switch (tipoTransaccion) {
                     case 1: {
+                        if (telefono == null || datos.get("destino") == null || datos.get("tipo_llamada") == null) {
+                            respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Datos incompletos\"}";
+                            break;
+                        }
+
                         String tipoServicio = db.obtenerTipoServicio(telefono);
                         String destino = datos.get("destino");
                         int tipoLlamada = Integer.parseInt(datos.get("tipo_llamada"));
@@ -77,6 +83,11 @@ public class ProveedorServer {
                     }
 
                     case 2: {
+                        if (telefono == null) {
+                            respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Datos incompletos\"}";
+                            break;
+                        }
+
                         String tipoServicio = db.obtenerTipoServicio(telefono);
                         respuesta = procesarConsulta(db, tipoServicio, telefono);
                         break;
@@ -107,6 +118,12 @@ public class ProveedorServer {
                     }
 
                     case 5: {
+                        if (telefono == null || datos.get("destino") == null || datos.get("fecha") == null ||
+                            datos.get("hora") == null || datos.get("duracion") == null || datos.get("costo") == null) {
+                            respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Datos incompletos\"}";
+                            break;
+                        }
+
                         String destino = datos.get("destino");
                         String duracionStr = datos.get("duracion");
                         String fecha = datos.get("fecha");
@@ -117,7 +134,7 @@ public class ProveedorServer {
                         int s = Integer.parseInt(duracionStr.substring(4, 6));
                         long segundos = h * 3600 + m * 60 + s;
 
-                        double costo = 0.0;
+                        double costo;
                         try {
                             costo = Double.parseDouble(datos.get("costo"));
                         } catch (Exception e) {
@@ -125,9 +142,7 @@ public class ProveedorServer {
                             break;
                         }
 
-                        boolean exito = db.registrarLlamadaYTransaccion(
-                            telefono, destino, fecha, hora, costo, duracionStr, 5
-                        );
+                        boolean exito = db.registrarLlamadaYTransaccion(telefono, destino, fecha, hora, costo, duracionStr, 5);
                         llamadasEnCurso.remove(telefono);
 
                         respuesta = exito
@@ -151,7 +166,6 @@ public class ProveedorServer {
 
                         if (estadoOperacion.equalsIgnoreCase("activar")) {
                             int resultado = db.activarLinea(tel, idTel, idChip, tipo, cedula);
-
                             switch (resultado) {
                                 case 1:
                                     boolean notificado = NotificadorIdentificador.notificarEstadoLinea(tel, idTel, idChip, tipo, cedula, "activo");
@@ -159,31 +173,16 @@ public class ProveedorServer {
                                         ? "{\"status\":\"OK\"}"
                                         : "{\"status\":\"ERROR\",\"mensaje\":\"Activación fallida (no notificado)\"}";
                                     break;
-                                case -2:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Teléfono ya está en uso\"}";
-                                    break;
-                                case -3:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Tipo de teléfono inválido\"}";
-                                    break;
-                                case -4:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Cliente no encontrado por cédula\"}";
-                                    break;
-                                case -5:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Teléfono y tarjetas no encontrados\"}";
-                                    break;
-                                case -6:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo actualizar el estado\"}";
-                                    break;
-                                case -99:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Excepción SQL al activar línea\"}";
-                                    break;
-                                default:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Error desconocido al activar\"}";
+                                case -2: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Teléfono ya está en uso\"}"; break;
+                                case -3: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Tipo de teléfono inválido\"}"; break;
+                                case -4: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Cliente no encontrado por cédula\"}"; break;
+                                case -5: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Teléfono y tarjetas no encontrados\"}"; break;
+                                case -6: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo actualizar el estado\"}"; break;
+                                case -99: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Excepción SQL al activar línea\"}"; break;
+                                default: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Error desconocido al activar\"}";
                             }
-
                         } else if (estadoOperacion.equalsIgnoreCase("desactivar")) {
                             int resultado = db.desactivarLinea(tel, idTel, idChip, cedula);
-
                             switch (resultado) {
                                 case 1:
                                     boolean notificado = NotificadorIdentificador.notificarEstadoLinea(tel, idTel, idChip, tipo, cedula, "inactivo");
@@ -191,28 +190,32 @@ public class ProveedorServer {
                                         ? "{\"status\":\"OK\"}"
                                         : "{\"status\":\"ERROR\",\"mensaje\":\"Desactivación fallida (no notificado)\"}";
                                     break;
-                                case -2:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"El cliente no coincide con el dueño actual del teléfono\"}";
-                                    break;
-                                case -4:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Cliente no encontrado por cédula\"}";
-                                    break;
-                                case -5:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Línea activa no encontrada\"}";
-                                    break;
-                                case -6:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo desactivar la línea\"}";
-                                    break;
-                                case -99:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Excepción SQL al desactivar línea\"}";
-                                    break;
-                                default:
-                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Error desconocido al desactivar\"}";
+                                case -2: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"El cliente no coincide con el dueño actual del teléfono\"}"; break;
+                                case -4: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Cliente no encontrado por cédula\"}"; break;
+                                case -5: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Línea activa no encontrada\"}"; break;
+                                case -6: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo desactivar la línea\"}"; break;
+                                case -99: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Excepción SQL al desactivar línea\"}"; break;
+                                default: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Error desconocido al desactivar\"}";
                             }
-
                         } else {
                             respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Estado no válido (debe ser 'activar' o 'desactivar')\"}";
                         }
+                        break;
+                    }
+
+                    case 7: {
+                        String fechaCalculo = datos.get("fecha_calculo");
+                        String fechaMaxPago = datos.get("fecha_max_pago");
+
+                        if (fechaCalculo == null || fechaMaxPago == null) {
+                            respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Datos incompletos\"}";
+                            break;
+                        }
+
+                        boolean exito = db.ejecutarCalculoCobroPostpago(fechaCalculo, fechaMaxPago);
+                        respuesta = exito
+                            ? "{\"status\":\"OK\"}"
+                            : "{\"status\":\"ERROR\",\"mensaje\":\"Error al ejecutar cálculo de cobros\"}";
                         break;
                     }
 
@@ -234,6 +237,7 @@ public class ProveedorServer {
             }
         }
     }
+
 
     private Map<String, String> parsearJsonConGson(String jsonStr) {
         try {

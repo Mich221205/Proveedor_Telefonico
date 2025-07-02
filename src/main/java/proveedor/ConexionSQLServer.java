@@ -26,6 +26,22 @@ public class ConexionSQLServer implements AutoCloseable {
         }
     }
 
+    public boolean ejecutarCalculoCobroPostpago(String fechaCalculo, String fechaMaxPago) {
+        String sql = "EXEC SP_COBROS_POSTPAGOS \n" +
+                     "    @FECHA_CALCULO = ?, \n" +
+                     "    @FECHA_M_PAGO = ?";
+        try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
+            stmt.setString(1, fechaCalculo);
+            stmt.setString(2, fechaMaxPago);
+            stmt.execute();
+            return true;
+        } catch (SQLException e) {
+            System.err.println("Error al ejecutar SP_COBROS_POSTPAGOS: " + e.getMessage());
+            return false;
+        }
+    }
+
+    
     public int activarLinea(String numero, String idTel, String idChip, String tipo, String cedula) {
         try {
             int idTipo = obtenerIdTipoTelefono(tipo);
