@@ -26,6 +26,110 @@ public class ConexionSQLServer implements AutoCloseable {
         }
     }
 
+    public int activarLinea(String numero, String idTel, String idChip, String tipo, String cedula) {
+        try {
+            int idTipo = obtenerIdTipoTelefono(tipo);
+            if (idTipo == -1) {
+                System.err.println("Tipo de teléfono inválido: " + tipo);
+                return -3;
+            }
+
+            int idCliente = obtenerIdClientePorCedula(cedula);
+            if (idCliente == -1) {
+                System.err.println("Cliente no encontrado con cédula: " + cedula);
+                return -4;
+            }
+
+            PreparedStatement stmt = conexion.prepareStatement(
+                "SELECT ESTADO FROM TELEFONOS WHERE NUM_TELEFONO = ? AND IDENTIFICADOR_TELEFONO = ? AND IDENTIFICADOR_TARJETA = ?"
+            );
+            stmt.setString(1, numero);
+            stmt.setString(2, idTel);
+            stmt.setString(3, idChip);
+            ResultSet rs = stmt.executeQuery();
+            if (!rs.next()) {
+                System.err.println("No se encontró línea con ese teléfono y tarjetas.");
+                return -5;
+            }
+
+            boolean disponible = !rs.getBoolean("ESTADO");
+            if (!disponible) {
+                System.err.println("El teléfono ya está activo.");
+                return -2;
+            }
+
+            double saldoInicial = tipo.equalsIgnoreCase("prepago") ? 1000.0 : 0.0;
+
+            PreparedStatement upd = conexion.prepareStatement(
+                "UPDATE TELEFONOS SET ESTADO = 1, SALDO = ?, TIPO_TELEFONO = ? WHERE NUM_TELEFONO = ?"
+            );
+            upd.setInt(1, idCliente);
+            upd.setDouble(2, saldoInicial);
+            upd.setInt(3, idTipo);
+            upd.setString(4, numero);
+
+            return upd.executeUpdate() > 0 ? 1 : -6;
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error activando línea:");
+            e.printStackTrace(); // muestra stack completo
+            return -99;
+        }
+    }
+
+    public int desactivarLinea(String numero, String idTel, String idChip, String cedula) {
+        try {
+            int idCliente = obtenerIdClientePorCedula(cedula);
+            if (idCliente == -1) {
+                System.err.println("Cliente no encontrado con cédula: " + cedula);
+                return -4;
+            }
+
+            PreparedStatement stmt = conexion.prepareStatement(
+                "SELECT ID_CLIENTE FROM TELEFONOS WHERE NUM_TELEFONO = ? AND IDENTIFICADOR_TELEFONO = ? AND IDENTIFICADOR_TARJETA = ? AND ESTADO = 1"
+            );
+            stmt.setString(1, numero);
+            stmt.setString(2, idTel);
+            stmt.setString(3, idChip);
+            ResultSet rs = stmt.executeQuery();
+            if (!rs.next()) {
+                System.err.println("No se encontró línea activa para desactivar.");
+                return -5;
+            }
+
+            int actualCliente = rs.getInt("ID_CLIENTE");
+            if (actualCliente != idCliente) {
+                System.err.println("El cliente no coincide con el dueño actual del teléfono.");
+                return -2;
+            }
+
+            PreparedStatement upd = conexion.prepareStatement(
+                "UPDATE TELEFONOS SET ESTADO = 0 WHERE NUM_TELEFONO = ?"
+            );
+            upd.setString(1, numero);
+            return upd.executeUpdate() > 0 ? 1 : -6;
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error desactivando línea:");
+            e.printStackTrace();
+            return -99;
+        }
+    }
+
+    private int obtenerIdClientePorCedula(String cedula) {
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                "SELECT ID_CLIENTE FROM CLIENTES WHERE CEDULA = ?")) {
+            stmt.setString(1, cedula);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next() ? rs.getInt("ID_CLIENTE") : -1;
+            }
+        } catch (SQLException e) {
+            System.err.println("Error al obtener ID_CLIENTE: " + e.getMessage());
+            return -1;
+        }
+    }
+
+    
     public double obtenerSaldo(String numero) {
         try (PreparedStatement stmt = conexion.prepareStatement(
                 "SELECT SALDO FROM dbo.TELEFONOS WHERE NUM_TELEFONO = ?")) {

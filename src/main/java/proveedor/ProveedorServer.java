@@ -1,9 +1,12 @@
 package proveedor;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
 import java.io.*;
+import java.lang.reflect.Type;
 import java.net.*;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 public class ProveedorServer {
@@ -38,13 +41,14 @@ public class ProveedorServer {
                 return;
             }
 
-            Map<String, String> datos = parsearJsonSimple(jsonStr);
+            Map<String, String> datos = parsearJsonConGson(jsonStr);
             if (datos == null) {
                 salida.println("{\"status\":\"ERROR\",\"mensaje\":\"Formato JSON invalido\"}");
                 return;
             }
 
             System.out.println("DEBUG JSON recibido: " + datos);
+
             String telefono = datos.get("telefono");
             String tipoStr = datos.get("tipo_transaccion");
             if (tipoStr == null || telefono == null) {
@@ -53,6 +57,7 @@ public class ProveedorServer {
             }
 
             int tipoTransaccion = Integer.parseInt(tipoStr.trim());
+            String respuesta;
 
             try (ConexionSQLServer db = new ConexionSQLServer()) {
                 if (!db.conectar()) {
@@ -60,10 +65,8 @@ public class ProveedorServer {
                     return;
                 }
 
-                String respuesta;
-
                 switch (tipoTransaccion) {
-                    case 1: { // Llamada
+                    case 1: {
                         String tipoServicio = db.obtenerTipoServicio(telefono);
                         String destino = datos.get("destino");
                         int tipoLlamada = Integer.parseInt(datos.get("tipo_llamada"));
@@ -72,19 +75,19 @@ public class ProveedorServer {
                         llamadasEnCurso.put(telefono, LocalDateTime.now());
                         break;
                     }
-               
+
                     case 2: {
                         String tipoServicio = db.obtenerTipoServicio(telefono);
                         respuesta = procesarConsulta(db, tipoServicio, telefono);
                         break;
                     }
-                    
-                    case 3: { // PROVEEDOR3 - Registrar nueva linea disponible
-                        String telefonoo = datos.get("telefono"); 
+
+                    case 3: {
+                        String telefonoo = datos.get("telefono");
                         String identificadorTel = datos.get("identificadorTel");
                         String identificadorTarjeta = datos.get("identificador_tarjeta");
-                        String tipo = datos.get("tipo"); // prepago / postpago
-                        String estado = datos.get("estado"); // disponible
+                        String tipo = datos.get("tipo");
+                        String estado = datos.get("estado");
 
                         if (telefonoo == null || identificadorTel == null || identificadorTarjeta == null || tipo == null || estado == null) {
                             respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Datos Incompletos\"}";
@@ -116,7 +119,7 @@ public class ProveedorServer {
 
                         double costo = 0.0;
                         try {
-                            costo = Double.parseDouble(datos.get("costo")); // ← ahora llega como numero decimal
+                            costo = Double.parseDouble(datos.get("costo"));
                         } catch (Exception e) {
                             respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Costo invalido\"}";
                             break;
@@ -130,6 +133,86 @@ public class ProveedorServer {
                         respuesta = exito
                             ? "{\"status\":\"OK\"}"
                             : "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo guardar\"}";
+                        break;
+                    }
+
+                    case 6: {
+                        String tel = datos.get("telefono");
+                        String idTel = datos.get("identificadorTel");
+                        String idChip = datos.get("identificador_tarjeta");
+                        String tipo = datos.get("tipo");
+                        String cedula = datos.get("duenio");
+                        String estadoOperacion = datos.get("estado");
+
+                        if (tel == null || idTel == null || idChip == null || tipo == null || cedula == null || estadoOperacion == null) {
+                            respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Datos Incompletos\"}";
+                            break;
+                        }
+
+                        if (estadoOperacion.equalsIgnoreCase("activar")) {
+                            int resultado = db.activarLinea(tel, idTel, idChip, tipo, cedula);
+
+                            switch (resultado) {
+                                case 1:
+                                    boolean notificado = NotificadorIdentificador.notificarEstadoLinea(tel, idTel, idChip, tipo, cedula, "activo");
+                                    respuesta = notificado
+                                        ? "{\"status\":\"OK\"}"
+                                        : "{\"status\":\"ERROR\",\"mensaje\":\"Activación fallida (no notificado)\"}";
+                                    break;
+                                case -2:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Teléfono ya está en uso\"}";
+                                    break;
+                                case -3:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Tipo de teléfono inválido\"}";
+                                    break;
+                                case -4:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Cliente no encontrado por cédula\"}";
+                                    break;
+                                case -5:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Teléfono y tarjetas no encontrados\"}";
+                                    break;
+                                case -6:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo actualizar el estado\"}";
+                                    break;
+                                case -99:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Excepción SQL al activar línea\"}";
+                                    break;
+                                default:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Error desconocido al activar\"}";
+                            }
+
+                        } else if (estadoOperacion.equalsIgnoreCase("desactivar")) {
+                            int resultado = db.desactivarLinea(tel, idTel, idChip, cedula);
+
+                            switch (resultado) {
+                                case 1:
+                                    boolean notificado = NotificadorIdentificador.notificarEstadoLinea(tel, idTel, idChip, tipo, cedula, "inactivo");
+                                    respuesta = notificado
+                                        ? "{\"status\":\"OK\"}"
+                                        : "{\"status\":\"ERROR\",\"mensaje\":\"Desactivación fallida (no notificado)\"}";
+                                    break;
+                                case -2:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"El cliente no coincide con el dueño actual del teléfono\"}";
+                                    break;
+                                case -4:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Cliente no encontrado por cédula\"}";
+                                    break;
+                                case -5:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Línea activa no encontrada\"}";
+                                    break;
+                                case -6:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo desactivar la línea\"}";
+                                    break;
+                                case -99:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Excepción SQL al desactivar línea\"}";
+                                    break;
+                                default:
+                                    respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Error desconocido al desactivar\"}";
+                            }
+
+                        } else {
+                            respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Estado no válido (debe ser 'activar' o 'desactivar')\"}";
+                        }
                         break;
                     }
 
@@ -152,23 +235,15 @@ public class ProveedorServer {
         }
     }
 
-    private Map<String, String> parsearJsonSimple(String jsonStr) {
+    private Map<String, String> parsearJsonConGson(String jsonStr) {
         try {
-            Map<String, String> datos = new HashMap<>();
-            jsonStr = jsonStr.trim().replaceAll("[{}\"]", "");
-            String[] partes = jsonStr.split(",");
-            for (String parte : partes) {
-                String[] keyValue = parte.split(":");
-                if (keyValue.length == 2) {
-                    datos.put(keyValue[0].trim(), keyValue[1].trim());
-                }
-            }
-            return datos;
+            Type tipo = new TypeToken<Map<String, String>>() {}.getType();
+            return new Gson().fromJson(jsonStr, tipo);
         } catch (Exception e) {
+            System.err.println("Error parseando JSON con Gson: " + e.getMessage());
             return null;
         }
     }
-
     private String procesarLlamada(ConexionSQLServer db, String tipoServicio, String telefono, String destino, int tipoLlamada) {
         try {
             if ("postpago".equals(tipoServicio)) {
@@ -196,7 +271,6 @@ public class ProveedorServer {
 
     private String procesarConsulta(ConexionSQLServer db, String tipoServicio, String telefono) {
         try {
-            // Registrar la transaccion como lo hacias antes
             db.registrarLlamadaYTransaccion(telefono, telefono, "20250627", "000000", 0.0, "000000", 2);
 
             if ("postpago".equals(tipoServicio)) {
@@ -211,7 +285,6 @@ public class ProveedorServer {
 
         return "{\"status\":\"error\",\"message\":\"Tipo de servicio desconocido\"}";
     }
-
 
     private double calcularTarifa(ConexionSQLServer db, String destino, int tipoLlamada) {
         if (tipoLlamada == 3) {
