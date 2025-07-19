@@ -79,10 +79,9 @@ public class ConexionSQLServer implements AutoCloseable {
             PreparedStatement upd = conexion.prepareStatement(
                 "UPDATE TELEFONOS SET ESTADO = 1, SALDO = ?, TIPO_TELEFONO = ? WHERE NUM_TELEFONO = ?"
             );
-            upd.setInt(1, idCliente);
-            upd.setDouble(2, saldoInicial);
-            upd.setInt(3, idTipo);
-            upd.setString(4, numero);
+            upd.setDouble(1, saldoInicial);
+            upd.setInt(2, idTipo);
+            upd.setString(3, numero);
 
             return upd.executeUpdate() > 0 ? 1 : -6;
 
