@@ -222,8 +222,17 @@ public class ProveedorServer {
                     default:
                         respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Transaccion no soportada\"}";
                 }
-
                 salida.println(respuesta);
+                salida.flush();
+
+                try 
+                {
+                  Thread.sleep(100);
+                }catch (InterruptedException ie)
+                {
+                  System.err.println("Error en espera antes de cerrar socket: " + ie.getMessage());
+                }
+
                 System.out.println("Respuesta enviada al cliente: " + respuesta);
             }
 
