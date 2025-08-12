@@ -194,11 +194,11 @@ public class ConexionSQLServer implements AutoCloseable {
             double saldoInicial = tipo.equalsIgnoreCase("prepago") ? 1000.0 : 0.0;
 
             // Convertir estado a booleano (1 = disponible, 0 = no disponible)
-            boolean estadoDisponible = estado.equalsIgnoreCase("disponible") || estado.equals("1");
+            boolean estadoDisponible = estado.equalsIgnoreCase("Disponible") || estado.equals("3");
 
             PreparedStatement stmt = conexion.prepareStatement(
-                "INSERT INTO TELEFONOS (NUM_TELEFONO, IDENTIFICADOR_TELEFONO, IDENTIFICADOR_TARJETA, ID_CODIGO, ID_CLIENTE, TIPO_TELEFONO, SALDO, ESTADO) " +
-                "VALUES (?, ?, ?, ?, NULL, ?, ?, ?)"
+                "INSERT INTO TELEFONOS (NUM_TELEFONO, IDENTIFICADOR_TELEFONO, IDENTIFICADOR_TARJETA, ID_CODIGO, ID_CLIENTE, TIPO_TELEFONO, SALDO, ID_ESTADO) " +
+                "VALUES (?, ?, ?, ?, NULL, ?, ?, 3)"
             );
             stmt.setString(1, numero);
             stmt.setString(2, identificadorTel);
@@ -206,7 +206,6 @@ public class ConexionSQLServer implements AutoCloseable {
             stmt.setInt(4, idCodigo);
             stmt.setInt(5, idTipoTelefono);
             stmt.setDouble(6, saldoInicial);
-            stmt.setBoolean(7, estadoDisponible);
 
             return stmt.executeUpdate() > 0;
 
