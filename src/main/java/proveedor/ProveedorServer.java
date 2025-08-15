@@ -152,56 +152,55 @@ public class ProveedorServer {
                     }
 
                     case 6: {
-                        String tel = datos.get("telefono");
-                        String idTel = datos.get("identificadorTel");
-                        String idChip = datos.get("identificador_tarjeta");
-                        String tipo = datos.get("tipo");
-                        String cedula = datos.get("duenio");
-                        String estadoOperacion = datos.get("estado");
+                            String tel    = datos.get("telefono");
+                            String idTel  = datos.get("identificadorTel");
+                            String idChip = datos.get("identificador_tarjeta");
+                            String tipo   = datos.get("tipo");
+                            String cedula = datos.get("duenio");
+                            String estadoOperacion = datos.get("estado"); // puede venir "2"
 
-                        if (tel == null || idTel == null || idChip == null || tipo == null || cedula == null || estadoOperacion == null) {
-                            respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Datos Incompletos\"}";
+                            if (tel == null || idTel == null || idChip == null || tipo == null || cedula == null || estadoOperacion == null) {
+                                respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Datos Incompletos\"}";
+                                break;
+                            }
+
+                            String estadoN = normalizarEstadoStr(estadoOperacion);
+                            String tipoN   = normalizarTipoStr(tipo);
+
+                            if ("activar".equals(estadoN)) {
+                                int resultado = db.activarLinea(tel, idTel, idChip, tipoN, cedula);
+                                switch (resultado) {
+                                    case 1:
+                                        boolean notA = NotificadorIdentificador.notificarEstadoLinea(tel, idTel, idChip, tipoN, cedula, "activo");
+                                        respuesta = notA ? "{\"status\":\"OK\"}" : "{\"status\":\"ERROR\",\"mensaje\":\"Activación fallida (no notificado)\"}";
+                                        break;
+                                    case -2: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Teléfono ya está en uso\"}"; break;
+                                    case -3: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Tipo de teléfono inválido\"}"; break;
+                                    case -4: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Cliente no encontrado por cédula\"}"; break;
+                                    case -5: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Teléfono y tarjetas no encontrados\"}"; break;
+                                    case -6: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo actualizar el estado\"}"; break;
+                                    case -99:respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Excepción SQL al activar línea\"}"; break;
+                                    default: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Error desconocido al activar\"}";
+                                }
+                            } else if ("desactivar".equals(estadoN)) {
+                                int resultado = db.desactivarLinea(tel, idTel, idChip, cedula);
+                                switch (resultado) {
+                                    case 1:
+                                        boolean notD = NotificadorIdentificador.notificarEstadoLinea(tel, idTel, idChip, tipoN, cedula, "inactivo");
+                                        respuesta = notD ? "{\"status\":\"OK\"}" : "{\"status\":\"ERROR\",\"mensaje\":\"Desactivación fallida (no notificado)\"}";
+                                        break;
+                                    case -2: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"El cliente no coincide con el dueño actual del teléfono\"}"; break;
+                                    case -4: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Cliente no encontrado por cédula\"}"; break;
+                                    case -5: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Línea activa no encontrada\"}"; break;
+                                    case -6: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo desactivar la línea\"}"; break;
+                                    case -99:respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Excepción SQL al desactivar línea\"}"; break;
+                                    default: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Error desconocido al desactivar\"}";
+                                }
+                            } else {
+                                respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Estado no válido (1/2 o activar/desactivar)\"}";
+                            }
                             break;
                         }
-
-                        if (estadoOperacion.equalsIgnoreCase("activar")) {
-                            int resultado = db.activarLinea(tel, idTel, idChip, tipo, cedula);
-                            switch (resultado) {
-                                case 1:
-                                    boolean notificado = NotificadorIdentificador.notificarEstadoLinea(tel, idTel, idChip, tipo, cedula, "activo");
-                                    respuesta = notificado
-                                        ? "{\"status\":\"OK\"}"
-                                        : "{\"status\":\"ERROR\",\"mensaje\":\"Activación fallida (no notificado)\"}";
-                                    break;
-                                case -2: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Teléfono ya está en uso\"}"; break;
-                                case -3: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Tipo de teléfono inválido\"}"; break;
-                                case -4: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Cliente no encontrado por cédula\"}"; break;
-                                case -5: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Teléfono y tarjetas no encontrados\"}"; break;
-                                case -6: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo actualizar el estado\"}"; break;
-                                case -99: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Excepción SQL al activar línea\"}"; break;
-                                default: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Error desconocido al activar\"}";
-                            }
-                        } else if (estadoOperacion.equalsIgnoreCase("desactivar")) {
-                            int resultado = db.desactivarLinea(tel, idTel, idChip, cedula);
-                            switch (resultado) {
-                                case 1:
-                                    boolean notificado = NotificadorIdentificador.notificarEstadoLinea(tel, idTel, idChip, tipo, cedula, "inactivo");
-                                    respuesta = notificado
-                                        ? "{\"status\":\"OK\"}"
-                                        : "{\"status\":\"ERROR\",\"mensaje\":\"Desactivación fallida (no notificado)\"}";
-                                    break;
-                                case -2: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"El cliente no coincide con el dueño actual del teléfono\"}"; break;
-                                case -4: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Cliente no encontrado por cédula\"}"; break;
-                                case -5: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Línea activa no encontrada\"}"; break;
-                                case -6: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"No se pudo desactivar la línea\"}"; break;
-                                case -99: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Excepción SQL al desactivar línea\"}"; break;
-                                default: respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Error desconocido al desactivar\"}";
-                            }
-                        } else {
-                            respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Estado no válido (debe ser 'activar' o 'desactivar')\"}";
-                        }
-                        break;
-                    }
 
                     case 7: {
                         String fechaCalculo = datos.get("fecha_calculo");
@@ -245,6 +244,26 @@ public class ProveedorServer {
                 System.err.println("Error al cerrar socket: " + ex.getMessage());
             }
         }
+    }
+    
+    private static String normalizarEstadoStr(String s) {
+    if (s == null) return "";
+    s = s.trim().toLowerCase();
+    if (s.equals("1") || s.equals("activar") || s.equals("activo") || s.equals("on") || s.equals("true"))
+        return "activar";
+    if (s.equals("2") || s.equals("desactivar") || s.equals("inactivo") || s.equals("off") || s.equals("false"))
+        return "desactivar";
+    return "";
+    }
+
+    private static String normalizarTipoStr(String s) {
+        if (s == null) return "";
+        s = s.trim().toLowerCase();
+        if (s.equals("1") || s.equals("postpago") || s.equals("pago") || s.equals("post-pago") || s.equals("pospago"))
+            return "postpago";
+        if (s.equals("2") || s.equals("prepago"))
+            return "prepago";
+        return s;
     }
 
 

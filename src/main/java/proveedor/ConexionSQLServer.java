@@ -1,6 +1,5 @@
 // ConexionSQLServer.java
 package proveedor;
-
 import java.sql.*;
 import java.util.Objects;
 
@@ -92,57 +91,72 @@ public class ConexionSQLServer implements AutoCloseable {
         }
     }
 
-    public int desactivarLinea(String numero, String idTel, String idChip, String cedula) {
-        try {
-            int idCliente = obtenerIdClientePorCedula(cedula);
-            if (idCliente == -1) {
-                System.err.println("Cliente no encontrado con cédula: " + cedula);
-                return -4;
+  public int desactivarLinea(String numero, String idTel, String idChip, String cedula) {
+    try {
+        int idCliente = obtenerIdClientePorCedula(cedula);
+        if (idCliente == -1) return -4;
+
+        // Buscar la línea por los 3 IDs
+        String sel = "SELECT ID_CLIENTE, ID_ESTADO " +
+                     "FROM dbo.TELEFONOS " +
+                     "WHERE NUM_TELEFONO=? AND IDENTIFICADOR_TELEFONO=? AND IDENTIFICADOR_TARJETA=?";
+        Integer actualCliente = null, estadoActual = null;
+        try (PreparedStatement s = conexion.prepareStatement(sel)) {
+            s.setString(1, numero.trim());
+            s.setString(2, idTel.trim());
+            s.setString(3, idChip.trim());
+            try (ResultSet rs = s.executeQuery()) {
+                if (!rs.next()) return -5; // no encontrada
+                actualCliente = rs.getInt("ID_CLIENTE");
+                estadoActual  = rs.getInt("ID_ESTADO");
             }
-
-            PreparedStatement stmt = conexion.prepareStatement(
-                "SELECT ID_CLIENTE FROM TELEFONOS WHERE NUM_TELEFONO = ? AND IDENTIFICADOR_TELEFONO = ? AND IDENTIFICADOR_TARJETA = ? AND ESTADO = 1"
-            );
-            stmt.setString(1, numero);
-            stmt.setString(2, idTel);
-            stmt.setString(3, idChip);
-            ResultSet rs = stmt.executeQuery();
-            if (!rs.next()) {
-                System.err.println("No se encontró línea activa para desactivar.");
-                return -5;
-            }
-
-            int actualCliente = rs.getInt("ID_CLIENTE");
-            if (actualCliente != idCliente) {
-                System.err.println("El cliente no coincide con el dueño actual del teléfono.");
-                return -2;
-            }
-
-            PreparedStatement upd = conexion.prepareStatement(
-                "UPDATE TELEFONOS SET ESTADO = 0 WHERE NUM_TELEFONO = ?"
-            );
-            upd.setString(1, numero);
-            return upd.executeUpdate() > 0 ? 1 : -6;
-
-        } catch (SQLException e) {
-            System.err.println("❌ Error desactivando línea:");
-            e.printStackTrace();
-            return -99;
         }
-    }
 
-    private int obtenerIdClientePorCedula(String cedula) {
-        try (PreparedStatement stmt = conexion.prepareStatement(
-                "SELECT ID_CLIENTE FROM CLIENTES WHERE CEDULA = ?")) {
-            stmt.setString(1, cedula);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next() ? rs.getInt("ID_CLIENTE") : -1;
-            }
-        } catch (SQLException e) {
-            System.err.println("Error al obtener ID_CLIENTE: " + e.getMessage());
-            return -1;
+        if (!actualCliente.equals(idCliente)) return -2;   // dueño no coincide
+        if (estadoActual != 1)           return -7;        // no está activa
+        String sql = "UPDATE dbo.TELEFONOS " +
+                     "SET ID_ESTADO = 2 " +
+                     "WHERE NUM_TELEFONO=? AND IDENTIFICADOR_TELEFONO=? AND IDENTIFICADOR_TARJETA=? AND ID_CLIENTE=?";
+        try (PreparedStatement upd = conexion.prepareStatement(sql)) {
+            upd.setString(1, numero.trim());
+            upd.setString(2, idTel.trim());
+            upd.setString(3, idChip.trim());
+            upd.setInt(4, idCliente);
+            int rows = upd.executeUpdate();
+            return rows > 0 ? 1 : -6;
         }
+
+    } catch (SQLException e) {
+        System.err.println("❌ Error desactivando línea:");
+        e.printStackTrace();
+        return -99;
     }
+}
+
+   private int obtenerIdClientePorCedula(String cedulaOId) {
+    if (cedulaOId == null || cedulaOId.trim().isEmpty()) return -1;
+
+    // normaliza: quita todo lo que no sea dígito
+    String limpio = cedulaOId.replaceAll("[^0-9]", "");
+
+    String sql =
+        "SELECT TOP 1 ID_CLIENTE " +
+        "FROM dbo.CLIENTES " +
+        "WHERE REPLACE(REPLACE(REPLACE(CEDULA,'-',''),' ',''),'.','') = ? " +  
+        "   OR CAST(ID_CLIENTE AS VARCHAR(20)) = ?";                           
+
+    try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
+        stmt.setString(1, limpio);
+        stmt.setString(2, limpio);
+        try (ResultSet rs = stmt.executeQuery()) {
+            return rs.next() ? rs.getInt(1) : -1;
+        }
+    } catch (SQLException e) {
+        System.err.println("Error al obtener ID_CLIENTE (entrada=" + cedulaOId + "): " + e.getMessage());
+        return -1;
+    }
+}
+
 
     
     public double obtenerSaldo(String numero) {
@@ -194,11 +208,11 @@ public class ConexionSQLServer implements AutoCloseable {
             double saldoInicial = tipo.equalsIgnoreCase("prepago") ? 1000.0 : 0.0;
 
             // Convertir estado a booleano (1 = disponible, 0 = no disponible)
-            boolean estadoDisponible = estado.equalsIgnoreCase("Disponible") || estado.equals("3");
+            boolean estadoDisponible = estado.equalsIgnoreCase("disponible") || estado.equals("1");
 
             PreparedStatement stmt = conexion.prepareStatement(
-                "INSERT INTO TELEFONOS (NUM_TELEFONO, IDENTIFICADOR_TELEFONO, IDENTIFICADOR_TARJETA, ID_CODIGO, ID_CLIENTE, TIPO_TELEFONO, SALDO, ID_ESTADO) " +
-                "VALUES (?, ?, ?, ?, NULL, ?, ?, 3)"
+                "INSERT INTO TELEFONOS (NUM_TELEFONO, IDENTIFICADOR_TELEFONO, IDENTIFICADOR_TARJETA, ID_CODIGO, ID_CLIENTE, TIPO_TELEFONO, SALDO, ESTADO) " +
+                "VALUES (?, ?, ?, ?, NULL, ?, ?, ?)"
             );
             stmt.setString(1, numero);
             stmt.setString(2, identificadorTel);
@@ -206,6 +220,7 @@ public class ConexionSQLServer implements AutoCloseable {
             stmt.setInt(4, idCodigo);
             stmt.setInt(5, idTipoTelefono);
             stmt.setDouble(6, saldoInicial);
+            stmt.setBoolean(7, estadoDisponible);
 
             return stmt.executeUpdate() > 0;
 
