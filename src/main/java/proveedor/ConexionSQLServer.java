@@ -1,10 +1,52 @@
 // ConexionSQLServer.java
 package proveedor;
 import java.sql.*;
+import java.util.Base64;
 import java.util.Objects;
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 
 public class ConexionSQLServer implements AutoCloseable {
     private Connection conexion;
+    
+    public class AESCipher {
+    // Debe ser EXACTAMENTE la misma clave que usás en C# o Python
+    private static final String SECRET_KEY = "1234567890123456";
+    private static final String INIT_VECTOR = "initialvector123";
+
+    public static String encrypt(String value) {
+        try {
+            IvParameterSpec iv = new IvParameterSpec(INIT_VECTOR.getBytes("UTF-8"));
+            SecretKeySpec skeySpec = new SecretKeySpec(SECRET_KEY.getBytes("UTF-8"), "AES");
+
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5PADDING");
+            cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
+
+            byte[] encrypted = cipher.doFinal(value.getBytes("UTF-8"));
+            return Base64.getEncoder().encodeToString(encrypted); // lo guardás en SQL como texto
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        return null;
+    }
+
+    public static String decrypt(String encrypted) {
+        try {
+            IvParameterSpec iv = new IvParameterSpec(INIT_VECTOR.getBytes("UTF-8"));
+            SecretKeySpec skeySpec = new SecretKeySpec(SECRET_KEY.getBytes("UTF-8"), "AES");
+
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5PADDING");
+            cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
+
+            byte[] original = cipher.doFinal(Base64.getDecoder().decode(encrypted));
+            return new String(original, "UTF-8");
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        return null;
+    }
+}
 
     public boolean conectar() {
         try {
@@ -56,31 +98,46 @@ public class ConexionSQLServer implements AutoCloseable {
             }
 
             PreparedStatement stmt = conexion.prepareStatement(
-                "SELECT ESTADO FROM TELEFONOS WHERE NUM_TELEFONO = ? AND IDENTIFICADOR_TELEFONO = ? AND IDENTIFICADOR_TARJETA = ?"
+                "SELECT ID_ESTADO FROM TELEFONOS WHERE NUM_TELEFONO = ? AND IDENTIFICADOR_TELEFONO = ? AND IDENTIFICADOR_TARJETA = ?"
             );
             stmt.setString(1, numero);
             stmt.setString(2, idTel);
             stmt.setString(3, idChip);
+
             ResultSet rs = stmt.executeQuery();
             if (!rs.next()) {
                 System.err.println("No se encontró línea con ese teléfono y tarjetas.");
                 return -5;
             }
 
-            boolean disponible = !rs.getBoolean("ESTADO");
-            if (!disponible) {
+            int estado = rs.getInt("ID_ESTADO");
+
+            if (estado == 1) { // Activo
                 System.err.println("El teléfono ya está activo.");
                 return -2;
             }
+            if (estado == 2) { // Inactivo
+                System.err.println("El teléfono está inactivo.");
+                return -7;
+            }
+            if (estado != 3) { // No está disponible
+                System.err.println("El estado de la línea no es válido para activar: " + estado);
+                return -8;
+            }
+
+            // Si está en estado 3 (disponible), entonces sí se puede activar
+
 
             double saldoInicial = tipo.equalsIgnoreCase("prepago") ? 1000.0 : 0.0;
 
             PreparedStatement upd = conexion.prepareStatement(
-                "UPDATE TELEFONOS SET ESTADO = 1, SALDO = ?, TIPO_TELEFONO = ? WHERE NUM_TELEFONO = ?"
+                "UPDATE TELEFONOS SET ID_ESTADO = 1, SALDO = ?, TIPO_TELEFONO = ?, ID_CLIENTE = ? WHERE NUM_TELEFONO = ?"
             );
             upd.setDouble(1, saldoInicial);
             upd.setInt(2, idTipo);
-            upd.setString(3, numero);
+            upd.setInt(3, idCliente);
+            upd.setString(4, numero);
+
 
             return upd.executeUpdate() > 0 ? 1 : -6;
 
@@ -157,8 +214,6 @@ public class ConexionSQLServer implements AutoCloseable {
     }
 }
 
-
-    
     public double obtenerSaldo(String numero) {
         try (PreparedStatement stmt = conexion.prepareStatement(
                 "SELECT SALDO FROM dbo.TELEFONOS WHERE NUM_TELEFONO = ?")) {
@@ -208,11 +263,11 @@ public class ConexionSQLServer implements AutoCloseable {
             double saldoInicial = tipo.equalsIgnoreCase("prepago") ? 1000.0 : 0.0;
 
             // Convertir estado a booleano (1 = disponible, 0 = no disponible)
-            boolean estadoDisponible = estado.equalsIgnoreCase("disponible") || estado.equals("1");
+            boolean estadoDisponible = estado.equalsIgnoreCase("disponible") || estado.equals("3");
 
             PreparedStatement stmt = conexion.prepareStatement(
-                "INSERT INTO TELEFONOS (NUM_TELEFONO, IDENTIFICADOR_TELEFONO, IDENTIFICADOR_TARJETA, ID_CODIGO, ID_CLIENTE, TIPO_TELEFONO, SALDO, ESTADO) " +
-                "VALUES (?, ?, ?, ?, NULL, ?, ?, ?)"
+                "INSERT INTO TELEFONOS (NUM_TELEFONO, IDENTIFICADOR_TELEFONO, IDENTIFICADOR_TARJETA, ID_CODIGO, ID_CLIENTE, TIPO_TELEFONO, SALDO, ID_ESTADO) " +
+                "VALUES (?, ?, ?, ?, NULL, ?, ?, 3)"
             );
             stmt.setString(1, numero);
             stmt.setString(2, identificadorTel);
@@ -220,7 +275,6 @@ public class ConexionSQLServer implements AutoCloseable {
             stmt.setInt(4, idCodigo);
             stmt.setInt(5, idTipoTelefono);
             stmt.setDouble(6, saldoInicial);
-            stmt.setBoolean(7, estadoDisponible);
 
             return stmt.executeUpdate() > 0;
 
