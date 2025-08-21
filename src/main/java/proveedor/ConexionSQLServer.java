@@ -147,7 +147,7 @@ public class ConexionSQLServer implements AutoCloseable {
             return -99;
         }
     }
-
+    
   public int desactivarLinea(String numero, String idTel, String idChip, String cedula) {
     try {
         int idCliente = obtenerIdClientePorCedula(cedula);

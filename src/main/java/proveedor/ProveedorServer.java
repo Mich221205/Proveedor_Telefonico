@@ -217,7 +217,6 @@ public class ProveedorServer {
                             : "{\"status\":\"ERROR\",\"mensaje\":\"Error al ejecutar cálculo de cobros\"}";
                         break;
                     }
-
                     default:
                         respuesta = "{\"status\":\"ERROR\",\"mensaje\":\"Transaccion no soportada\"}";
                 }
